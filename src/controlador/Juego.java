@@ -2,9 +2,15 @@ package controlador;
 
 import modelo.Casilla;
 import modelo.Tablero;
+
+import java.util.InputMismatchException;
 import java.util.Scanner;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class Juego {
+    private static final Logger LOGGER = Logger.getLogger(Juego.class.getName());
+
     private Tablero tablero;
     private boolean juegoActivo;
 
@@ -14,73 +20,94 @@ public class Juego {
     }
 
     public void jugar() {
-        Scanner scanner = new Scanner(System.in);
-
-        if (GestorDeArchivos.existeJuegoGuardado()) {
-            System.out.print("¿Deseas cargar el juego guardado? (S/N): ");
-            String respuesta = scanner.nextLine().toUpperCase();
-            if (respuesta.equals("S")) {
-                try {
-                    tablero = GestorDeArchivos.cargarJuego();
-                } catch (Exception e) {
-                    System.out.println("Error al cargar el juego: " + e.getMessage());
-                }
+        try (Scanner scanner = new Scanner(System.in)) {
+            if (GestorDeArchivos.existeJuegoGuardado()) {
+                cargarJuegoGuardado(scanner);
             }
-        }
 
-        System.out.println("¡Bienvenido al juego de Buscaminas!");
-        while (juegoActivo) {
-            tablero.mostrarTablero();
-            System.out.println("[1] Descubrir casilla");
-            System.out.println("[2] Marcar casilla");
-            System.out.println("[3] Guardar y salir");
-            System.out.print("Elige una opción: ");
-            int opcion = scanner.nextInt();
-            scanner.nextLine();  // Limpiar buffer
+            System.out.println("\u00a1Bienvenido al juego de Buscaminas!");
+            while (juegoActivo) {
+                tablero.mostrarTablero();
+                mostrarMenu();
 
-            try {
-                switch (opcion) {
-                    case 1 -> {
-                        System.out.print("Introduce la coordenada (por ejemplo, A5): ");
-                        manejarDescubrimiento(scanner.nextLine().toUpperCase());
-                    }
-                    case 2 -> {
-                        System.out.print("Introduce la coordenada (por ejemplo, A5): ");
-                        manejarMarcado(scanner.nextLine().toUpperCase());
-                    }
-                    case 3 -> {
-                        GestorDeArchivos.guardarJuego(tablero);
-                        juegoActivo = false;
-                    }
-                    default -> System.out.println("Opción inválida. Inténtalo de nuevo.");
-                }
-            } catch (Exception e) {
-                System.out.println("Error: " + e.getMessage());
+                int opcion = obtenerOpcionUsuario(scanner);
+                ejecutarOpcion(opcion, scanner);
             }
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error inesperado durante el juego: {0}", e.getMessage());
         }
-
-        scanner.close();
     }
 
-
-
-    private void manejarDescubrimiento(String coordenada) throws Exception {
-        int fila = coordenada.charAt(0) - 'A';
-        int columna = Integer.parseInt(coordenada.substring(1)) - 1;
-
-        if (fila < 0 || fila >= 10 || columna < 0 || columna >= 10) {
-            throw new Exception("Coordenada fuera del tablero. Inténtalo de nuevo.");
+    private void cargarJuegoGuardado(Scanner scanner) {
+        System.out.print("\u00bfDeseas cargar el juego guardado? (S/N): ");
+        String respuesta = scanner.nextLine().trim().toUpperCase();
+        if (respuesta.equals("S")) {
+            try {
+                tablero = GestorDeArchivos.cargarJuego();
+                System.out.println("Juego cargado correctamente.");
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error al cargar el juego: {0}", e.getMessage());
+                System.out.println("No se pudo cargar el juego guardado.");
+            }
         }
+    }
+
+    private void mostrarMenu() {
+        System.out.println("\n[1] Descubrir casilla");
+        System.out.println("[2] Marcar casilla");
+        System.out.println("[3] Guardar y salir");
+        System.out.print("Elige una opción: ");
+    }
+
+    private int obtenerOpcionUsuario(Scanner scanner) {
+        try {
+            return Integer.parseInt(scanner.nextLine().trim());
+        } catch (NumberFormatException e) {
+            LOGGER.warning("Opción inválida. Introduzca un número.");
+            return -1; // Opción inválida
+        }
+    }
+
+    private void ejecutarOpcion(int opcion, Scanner scanner) {
+        try {
+            switch (opcion) {
+                case 1 -> manejarDescubrimiento(coordenadaDesdeUsuario(scanner));
+                case 2 -> manejarMarcado(coordenadaDesdeUsuario(scanner));
+                case 3 -> {
+                    GestorDeArchivos.guardarJuego(tablero);
+                    juegoActivo = false;
+                    System.out.println("Juego guardado. Hasta luego.");
+                }
+                default -> System.out.println("Opción inválida. Inténtalo de nuevo.");
+            }
+        } catch (IllegalArgumentException e) {
+            System.out.println("Error: " + e.getMessage());
+        } catch (Exception e) {
+            LOGGER.warning("Error inesperado: " + e.getMessage());
+            System.out.println("Ocurrió un error inesperado. Inténtalo de nuevo.");
+        }
+    }
+
+    private String coordenadaDesdeUsuario(Scanner scanner) {
+        System.out.print("Introduce la coordenada (por ejemplo, A5): ");
+        return scanner.nextLine().trim().toUpperCase();
+    }
+
+    private void manejarDescubrimiento(String coordenada) {
+        int[] coordenadas = convertirCoordenada(coordenada);
+        int fila = coordenadas[0];
+        int columna = coordenadas[1];
 
         Casilla casilla = tablero.getCasilla(fila, columna);
 
         if (casilla.estaDescubierta()) {
-            throw new Exception("Esta casilla ya ha sido descubierta.");
+            System.out.println("Esta casilla ya ha sido descubierta.");
+            return;
         }
 
         if (casilla.tieneMina()) {
             tablero.mostrarTablero();
-            System.out.println("¡Has encontrado una mina! ¡Has perdido!");
+            System.out.println("\u00a1Has encontrado una mina! \u00a1Has perdido!");
             juegoActivo = false;
         } else {
             descubrirRecursivo(fila, columna);
@@ -88,23 +115,43 @@ public class Juego {
         }
     }
 
-    private void manejarMarcado(String coordenada) throws Exception {
-        int fila = coordenada.charAt(0) - 'A';
-        int columna = Integer.parseInt(coordenada.substring(1)) - 1;
-
-        if (fila < 0 || fila >= 10 || columna < 0 || columna >= 10) {
-            throw new Exception("Coordenada fuera del tablero. Inténtalo de nuevo.");
-        }
+    private void manejarMarcado(String coordenada) {
+        int[] coordenadas = convertirCoordenada(coordenada);
+        int fila = coordenadas[0];
+        int columna = coordenadas[1];
 
         Casilla casilla = tablero.getCasilla(fila, columna);
         casilla.marcar();
+        System.out.println("Casilla marcada correctamente.");
+    }
+
+    private int[] convertirCoordenada(String coordenada) {
+        if (coordenada.length() < 2) {
+            throw new IllegalArgumentException("Formato de coordenada inválido.");
+        }
+
+        int fila = coordenada.charAt(0) - 'A';
+        int columna;
+        try {
+            columna = Integer.parseInt(coordenada.substring(1)) - 1;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("El número de columna no es válido.");
+        }
+
+        if (fila < 0 || fila >= 10 || columna < 0 || columna >= 10) {
+            throw new IllegalArgumentException("Coordenada fuera del tablero.");
+        }
+
+        return new int[]{fila, columna};
     }
 
     private void descubrirRecursivo(int fila, int columna) {
-        // Lógica para descubrir recursivamente casillas vacías
+        // TODO: Implementar lógica para descubrir recursivamente casillas vacías.
+        System.out.println("Descubriendo casillas vacías recursivamente... (pendiente de implementar)");
     }
 
     private void verificarVictoria() {
-        // Lógica para verificar si todas las casillas seguras han sido descubiertas
+        // TODO: Implementar lógica para verificar si se descubrieron todas las casillas seguras.
+        System.out.println("Verificando victoria... (pendiente de implementar)");
     }
 }
